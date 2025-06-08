@@ -10,7 +10,20 @@ import {
   Menu,
   MenuItem,
   Typography,
-  Stack
+  Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Stepper,
+  Step,
+  StepLabel,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem as MuiMenuItem,
+  CircularProgress
 } from '@mui/material';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -19,16 +32,51 @@ import GitHubIcon from '@mui/icons-material/GitHub';
 import TwitterIcon from '@mui/icons-material/Twitter';
 import { SiDiscord } from 'react-icons/si';
 import WoWLogo from './WoWLogo';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TopBarProps {
   isSidebarOpen: boolean;
   onSidebarToggle: () => void;
 }
 
+const classes = [
+  'Death Knight',
+  'Druid',
+  'Hunter',
+  'Mage',
+  'Monk',
+  'Paladin',
+  'Priest',
+  'Rogue',
+  'Shaman',
+  'Warlock',
+  'Warrior'
+];
+
+const experienceLevels = [
+  'Beginner (0-1000 rating)',
+  'Intermediate (1000-2000 rating)',
+  'Advanced (2000-2400 rating)',
+  'Elite (2400+ rating)'
+];
+
+const steps = ['Battle.net Login', 'Character Info', 'Experience'];
+
 export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) {
   const router = useRouter();
+  const auth = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const isLoggedIn = false; // Replace with actual auth state
+  const [isSignupOpen, setIsSignupOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [gameVersion, setGameVersion] = useState<'classic' | 'retail'>('classic');
+  const [formData, setFormData] = useState({
+    characterClass: '',
+    experience: '',
+    mainSpec: '',
+    currentRating: '',
+    yearsOfExperience: ''
+  });
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -39,13 +87,11 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
   };
 
   const handleSignIn = () => {
-    // Implement sign in logic
-    console.log('Sign in clicked');
+    auth.login();
   };
 
   const handleSignOut = () => {
-    // Implement sign out logic
-    console.log('Sign out clicked');
+    auth.logout();
     handleClose();
   };
 
@@ -57,113 +103,387 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
     window.open(url, '_blank');
   };
 
-  return (
-    <AppBar
-      position="fixed"
-      sx={{
-        zIndex: (theme) => theme.zIndex.drawer + 1,
-        backgroundColor: 'background.paper',
-        borderBottom: '1px solid',
-        borderColor: 'divider'
-      }}
-    >
-      <Toolbar sx={{ justifyContent: 'space-between' }}>
-        {/* Left section - Menu and Logo */}
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton
-            color="inherit"
-            aria-label="toggle sidebar"
-            onClick={onSidebarToggle}
-            edge="start"
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Box onClick={handleLogoClick} sx={{ cursor: 'pointer' }}>
-            <WoWLogo />
+  const handleBattleNetLogin = async () => {
+    setIsLoading(true);
+    try {
+      // TODO: Implement Battle.net OAuth flow
+      // For now, just simulate a successful login
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setActiveStep(1);
+    } catch (error) {
+      console.error('Battle.net login failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleNext = () => {
+    setActiveStep((prevStep) => prevStep + 1);
+  };
+
+  const handleBack = () => {
+    setActiveStep((prevStep) => prevStep - 1);
+  };
+
+  const handleFormSubmit = async () => {
+    setIsLoading(true);
+    try {
+      // TODO: Implement form submission
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setIsSignupOpen(false);
+      setActiveStep(0);
+      setFormData({
+        characterClass: '',
+        experience: '',
+        mainSpec: '',
+        currentRating: '',
+        yearsOfExperience: ''
+      });
+    } catch (error) {
+      console.error('Form submission failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleInputChange = (field: string) => (event: any) => {
+    setFormData({
+      ...formData,
+      [field]: event.target.value
+    });
+  };
+
+  const renderStepContent = (step: number) => {
+    switch (step) {
+      case 0:
+        return (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography variant="h6" gutterBottom>
+              Connect with Battle.net
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
+              Sign in with your Battle.net account to get started
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={handleBattleNetLogin}
+              disabled={isLoading}
+              sx={{
+                backgroundColor: '#00A2FF',
+                '&:hover': {
+                  backgroundColor: '#0080CC',
+                },
+                minWidth: 200,
+              }}
+            >
+              {isLoading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                'Connect with Battle.net'
+              )}
+            </Button>
           </Box>
-        </Box>
+        );
+      case 1:
+        return (
+          <Box sx={{ py: 2 }}>
+            <FormControl fullWidth sx={{ mb: 3 }}>
+              <InputLabel>Character Class</InputLabel>
+              <Select
+                value={formData.characterClass}
+                onChange={handleInputChange('characterClass')}
+                label="Character Class"
+              >
+                {classes.map((className) => (
+                  <MuiMenuItem key={className} value={className}>
+                    {className}
+                  </MuiMenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth sx={{ mb: 3 }}>
+              <InputLabel>Main Specialization</InputLabel>
+              <Select
+                value={formData.mainSpec}
+                onChange={handleInputChange('mainSpec')}
+                label="Main Specialization"
+              >
+                <MuiMenuItem value="DPS">DPS</MuiMenuItem>
+                <MuiMenuItem value="Healer">Healer</MuiMenuItem>
+                <MuiMenuItem value="Tank">Tank</MuiMenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="Current Rating"
+              type="number"
+              value={formData.currentRating}
+              onChange={handleInputChange('currentRating')}
+              sx={{ mb: 3 }}
+            />
+          </Box>
+        );
+      case 2:
+        return (
+          <Box sx={{ py: 2 }}>
+            <FormControl fullWidth sx={{ mb: 3 }}>
+              <InputLabel>Experience Level</InputLabel>
+              <Select
+                value={formData.experience}
+                onChange={handleInputChange('experience')}
+                label="Experience Level"
+              >
+                {experienceLevels.map((level) => (
+                  <MuiMenuItem key={level} value={level}>
+                    {level}
+                  </MuiMenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              fullWidth
+              label="Years of Experience"
+              type="number"
+              value={formData.yearsOfExperience}
+              onChange={handleInputChange('yearsOfExperience')}
+              sx={{ mb: 3 }}
+            />
+          </Box>
+        );
+      default:
+        return null;
+    }
+  };
 
-        {/* Center section - Title */}
-        <Typography
-          variant="h6"
-          component="div"
-          sx={{
-            position: 'absolute',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            fontWeight: 'bold',
-            color: 'primary.main'
-          }}
-        >
-          MopMeta.io
-        </Typography>
+  return (
+    <>
+      <AppBar
+        position="fixed"
+        sx={{
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          backgroundColor: 'background.paper',
+          borderBottom: '1px solid',
+          borderColor: 'divider'
+        }}
+      >
+        <Toolbar sx={{ justifyContent: 'space-between' }}>
+          {/* Left section - Menu and Logo */}
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <IconButton
+              color="inherit"
+              aria-label="toggle sidebar"
+              onClick={onSidebarToggle}
+              edge="start"
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
+            <Box onClick={handleLogoClick} sx={{ cursor: 'pointer' }}>
+              <WoWLogo />
+            </Box>
+            {/* Game Version Selector */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                ml: 2,
+                backgroundColor: 'background.paper',
+                borderRadius: '16px',
+                border: '1px solid',
+                borderColor: 'divider',
+                overflow: 'hidden'
+              }}
+            >
+              <Button
+                variant={gameVersion === 'classic' ? 'contained' : 'text'}
+                onClick={() => setGameVersion('classic')}
+                sx={{
+                  borderRadius: 0,
+                  backgroundColor: gameVersion === 'classic' ? 'primary.main' : 'transparent',
+                  color: gameVersion === 'classic' ? 'white' : 'text.primary',
+                  '&:hover': {
+                    backgroundColor: gameVersion === 'classic' ? 'primary.dark' : 'action.hover',
+                  },
+                  px: 2,
+                  py: 0.5,
+                  fontSize: '0.875rem',
+                  textTransform: 'none',
+                  fontWeight: 600
+                }}
+              >
+                Classic
+              </Button>
+              <Button
+                variant={gameVersion === 'retail' ? 'contained' : 'text'}
+                onClick={() => setGameVersion('retail')}
+                sx={{
+                  borderRadius: 0,
+                  backgroundColor: gameVersion === 'retail' ? 'primary.main' : 'transparent',
+                  color: gameVersion === 'retail' ? 'white' : 'text.primary',
+                  '&:hover': {
+                    backgroundColor: gameVersion === 'retail' ? 'primary.dark' : 'action.hover',
+                  },
+                  px: 2,
+                  py: 0.5,
+                  fontSize: '0.875rem',
+                  textTransform: 'none',
+                  fontWeight: 600
+                }}
+              >
+                Retail
+              </Button>
+            </Box>
+            {/* User Count Display */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                ml: 2,
+                backgroundColor: 'background.paper',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                border: '1px solid',
+                borderColor: 'divider',
+                fontSize: '0.875rem',
+                color: 'text.secondary'
+              }}
+            >
+              <Typography variant="body2">
+                <strong>1,234</strong> players online
+              </Typography>
+            </Box>
+          </Box>
 
-        {/* Right section - Social Links and Auth */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Stack direction="row" spacing={1}>
-            <IconButton 
-              onClick={() => handleSocialClick('https://discord.gg/lumberforged')}
-              size="small"
-              sx={{ color: '#5865F2' }}
-            >
-              <SiDiscord size={24} />
-            </IconButton>
-            <IconButton 
-              onClick={() => handleSocialClick('https://twitter.com/lumberforged')}
-              size="small"
-              sx={{ color: '#1DA1F2' }}
-            >
-              <TwitterIcon />
-            </IconButton>
-            <IconButton 
-              onClick={() => handleSocialClick('https://github.com/lumberforged')}
-              size="small"
-              sx={{ color: 'text.primary' }}
-            >
-              <GitHubIcon />
-            </IconButton>
-          </Stack>
+          {/* Center section - Title */}
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{
+              position: 'absolute',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              fontWeight: 'bold',
+              color: 'primary.main'
+            }}
+          >
+            ArenaMeta
+          </Typography>
 
-          {isLoggedIn ? (
-            <>
+          {/* Right section - Social Links and Auth */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Stack direction="row" spacing={1}>
               <IconButton
-                size="large"
-                aria-label="account of current user"
-                aria-controls="menu-appbar"
-                aria-haspopup="true"
-                onClick={handleMenu}
-                color="inherit"
+                onClick={() => handleSocialClick('https://github.com/your-repo')}
+                sx={{ color: 'text.secondary' }}
               >
-                <Avatar sx={{ width: 32, height: 32 }} />
+                <GitHubIcon />
               </IconButton>
-              <Menu
-                id="menu-appbar"
-                anchorEl={anchorEl}
-                anchorOrigin={{
-                  vertical: 'bottom',
-                  horizontal: 'right',
-                }}
-                keepMounted
-                transformOrigin={{
-                  vertical: 'top',
-                  horizontal: 'right',
-                }}
-                open={Boolean(anchorEl)}
-                onClose={handleClose}
+              <IconButton
+                onClick={() => handleSocialClick('https://twitter.com/your-handle')}
+                sx={{ color: 'text.secondary' }}
               >
-                <MenuItem onClick={handleClose}>Profile</MenuItem>
-                <MenuItem onClick={handleClose}>My Account</MenuItem>
-                <MenuItem onClick={handleSignOut}>Sign Out</MenuItem>
-              </Menu>
-            </>
-          ) : (
-            <Button color="inherit" onClick={handleSignIn}>
-              Sign In
+                <TwitterIcon />
+              </IconButton>
+              <IconButton
+                onClick={() => handleSocialClick('https://discord.gg/your-server')}
+                sx={{ color: 'text.secondary' }}
+              >
+                <SiDiscord />
+              </IconButton>
+            </Stack>
+
+            {auth?.isAuthenticated ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Avatar
+                  sx={{ 
+                    width: 32, 
+                    height: 32,
+                    bgcolor: 'primary.main',
+                    cursor: 'pointer'
+                  }}
+                  onClick={handleMenu}
+                >
+                  {auth.profile?.battletag?.[0] || 'U'}
+                </Avatar>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={handleClose}
+                >
+                  <MenuItem onClick={() => {
+                    router.push('/profile');
+                    handleClose();
+                  }}>
+                    Profile
+                  </MenuItem>
+                  <MenuItem onClick={handleSignOut}>Sign Out</MenuItem>
+                </Menu>
+              </Box>
+            ) : (
+              <Button 
+                variant="contained" 
+                color="primary"
+                onClick={handleSignIn}
+                sx={{
+                  backgroundColor: '#00A2FF',
+                  '&:hover': {
+                    backgroundColor: '#0080CC',
+                  },
+                }}
+              >
+                Sign In with Battle.net
+              </Button>
+            )}
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      {/* Signup Modal */}
+      <Dialog 
+        open={isSignupOpen} 
+        onClose={() => !isLoading && setIsSignupOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Stepper activeStep={activeStep} alternativeLabel>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+        </DialogTitle>
+        <DialogContent>
+          {renderStepContent(activeStep)}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          {activeStep > 0 && (
+            <Button onClick={handleBack} disabled={isLoading}>
+              Back
             </Button>
           )}
-        </Box>
-      </Toolbar>
-    </AppBar>
+          {activeStep < steps.length - 1 ? (
+            <Button 
+              variant="contained" 
+              onClick={handleNext}
+              disabled={isLoading || (activeStep === 1 && !formData.characterClass)}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button 
+              variant="contained" 
+              onClick={handleFormSubmit}
+              disabled={isLoading || !formData.experience}
+            >
+              {isLoading ? <CircularProgress size={24} /> : 'Complete'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+    </>
   );
 } 

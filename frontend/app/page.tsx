@@ -23,7 +23,9 @@ import {
   Autocomplete,
   styled,
   ToggleButtonGroup,
-  ToggleButton
+  ToggleButton,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
@@ -162,6 +164,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [character, setCharacter] = useState<Character | null>(null);
   const [error, setError] = useState('');
+  const [showError, setShowError] = useState(false);
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [selectedBracket, setSelectedBracket] = useState<'2v2' | '3v3'>('3v3');
@@ -214,7 +217,9 @@ export default function Home() {
       const data = await response.json();
       setLeaderboard(data);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
+      setShowError(true);
     } finally {
       setLeaderboardLoading(false);
     }
@@ -223,6 +228,7 @@ export default function Home() {
   const handleSearch = async () => {
     if (!realm || !name) {
       setError('Please enter both realm and character name');
+      setShowError(true);
       return;
     }
 
@@ -237,11 +243,17 @@ export default function Home() {
       const data = await response.json();
       setCharacter(data);
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
+      setShowError(true);
       setCharacter(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCloseError = () => {
+    setShowError(false);
   };
 
   return (
@@ -257,7 +269,7 @@ export default function Home() {
     >
       <Box sx={{ my: 4 }}>
         <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
-          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <ToggleButtonGroup
               value={region}
               exclusive
@@ -268,6 +280,7 @@ export default function Home() {
                 }
               }}
               aria-label="region selection"
+              size="small"
             >
               <ToggleButton value="US" aria-label="US region">
                 US
@@ -276,61 +289,47 @@ export default function Home() {
                 EU
               </ToggleButton>
             </ToggleButtonGroup>
-          </Box>
-          <Box sx={{ display: 'flex', gap: 3, justifyContent: 'flex-end', alignItems: 'center' }}>
-            <Box sx={{ width: '40%' }}>
-              <StyledAutocomplete
-                freeSolo
-                options={realmOptions}
-                value={realm}
-                onChange={(event: any, value: string | null) => setRealm(value || '')}
-                onInputChange={(event, newValue) => setRealm(newValue)}
-                renderInput={(params) => (
-                  <MuiTextField
-                    {...params}
-                    fullWidth
-                    label="Realm"
-                    placeholder="e.g., Whitemane"
-                  />
-                )}
-              />
-            </Box>
-            <Box sx={{ width: '40%' }}>
-              <StyledAutocomplete
-                freeSolo
-                options={nameOptions}
-                value={name}
-                onChange={(event: any, value: string | null) => setName(value || '')}
-                onInputChange={(event, newValue) => setName(newValue)}
-                renderInput={(params) => (
-                  <MuiTextField
-                    {...params}
-                    fullWidth
-                    label="Character Name"
-                    placeholder="e.g., Arthas"
-                  />
-                )}
-              />
-            </Box>
-            <Box sx={{ width: '15%' }}>
-              <Button
-                fullWidth
-                variant="contained"
-                onClick={handleSearch}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} /> : <SearchIcon />}
-              >
-                Search
-              </Button>
-            </Box>
+            <StyledAutocomplete
+              freeSolo
+              options={realmOptions}
+              value={realm}
+              onChange={(event: any, value: string | null) => setRealm(value || '')}
+              onInputChange={(event, newValue) => setRealm(newValue)}
+              renderInput={(params) => (
+                <MuiTextField
+                  {...params}
+                  size="small"
+                  placeholder="Realm"
+                  sx={{ width: 200 }}
+                />
+              )}
+            />
+            <StyledAutocomplete
+              freeSolo
+              options={nameOptions}
+              value={name}
+              onChange={(event: any, value: string | null) => setName(value || '')}
+              onInputChange={(event, newValue) => setName(newValue)}
+              renderInput={(params) => (
+                <MuiTextField
+                  {...params}
+                  size="small"
+                  placeholder="Character Name"
+                  sx={{ width: 200 }}
+                />
+              )}
+            />
+            <Button
+              variant="contained"
+              onClick={handleSearch}
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={20} /> : <SearchIcon />}
+              size="small"
+            >
+              Search
+            </Button>
           </Box>
         </Paper>
-
-        {error && (
-          <Typography color="error" align="center" gutterBottom>
-            {error}
-          </Typography>
-        )}
 
         {character && (
           <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
@@ -414,6 +413,22 @@ export default function Home() {
           )}
         </Paper>
       </Box>
+
+      <Snackbar 
+        open={showError} 
+        autoHideDuration={6000} 
+        onClose={handleCloseError}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseError} 
+          severity="error" 
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {error}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 } 

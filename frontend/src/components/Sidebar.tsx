@@ -19,6 +19,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import SettingsIcon from '@mui/icons-material/Settings';
+import GroupIcon from '@mui/icons-material/Group';
 import { styled } from '@mui/material/styles';
 import { useState, useEffect } from 'react';
 
@@ -37,6 +38,10 @@ const StyledDrawer = styled(Drawer)(({ theme }) => ({
     boxSizing: 'border-box',
     backgroundColor: theme.palette.background.paper,
     borderRight: `1px solid ${theme.palette.divider}`,
+    transition: theme.transitions.create('width', {
+      easing: theme.transitions.easing.sharp,
+      duration: theme.transitions.duration.enteringScreen,
+    }),
   },
 }));
 
@@ -122,6 +127,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
   const menuItems = [
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Profile', icon: <PersonIcon />, path: '/profile' },
+    { text: 'Find Partners', icon: <GroupIcon />, path: '/find-partners' },
     { text: 'Leaderboards', icon: <EmojiEventsIcon />, path: '/leaderboards' },
     { text: 'Guides', icon: <MenuBookIcon />, path: '/guides' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
@@ -151,6 +157,17 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
       variant={isMobile ? 'temporary' : 'permanent'}
       open={open}
       onClose={onClose}
+      sx={{
+        width: open ? drawerWidth : 0,
+        '& .MuiDrawer-paper': {
+          width: open ? drawerWidth : 0,
+          overflowX: 'hidden',
+          transition: theme.transitions.create('width', {
+            easing: theme.transitions.easing.sharp,
+            duration: theme.transitions.duration.enteringScreen,
+          }),
+        },
+      }}
     >
       <DrawerHeader />
       <Box sx={{ overflow: 'auto', height: '100%' }}>

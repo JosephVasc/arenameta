@@ -8,21 +8,21 @@ export default function WoWLogo() {
     <Box
       sx={{
         position: 'relative',
-        width: 120,
-        height: 40,
+        width: 200,
+        height: 60,
         cursor: 'pointer',
         '&:hover': {
           opacity: 0.8,
         },
       }}
     >
-      {/* <Image
-        src=""
-        alt="World of Warcraft: Mists of Pandaria"
+      <Image
+        src="/images/logo.png"
+        alt="ArenaMeta.io"
         fill
         style={{ objectFit: 'contain' }}
         priority
-      /> */}
+      />
     </Box>
   );
 } 

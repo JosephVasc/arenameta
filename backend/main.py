@@ -1,59 +1,183 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import httpx
 import os
 from dotenv import load_dotenv
-import requests
-from typing import Optional
 
 load_dotenv()
 
-app = FastAPI(title="WoW Classic Armory API")
+app = FastAPI()
 
-# Configure CORS
+# CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Battle.net API configuration
-BATTLE_NET_CLIENT_ID = os.getenv("BATTLE_NET_CLIENT_ID")
-BATTLE_NET_CLIENT_SECRET = os.getenv("BATTLE_NET_CLIENT_SECRET")
-BATTLE_NET_REGION = "us"  # or "eu" depending on your needs
+# Battle.net OAuth configuration
+BATTLE_NET_CLIENT_ID = os.getenv('BATTLE_NET_CLIENT_ID')
+BATTLE_NET_CLIENT_SECRET = os.getenv('BATTLE_NET_CLIENT_SECRET')
+BATTLE_NET_REDIRECT_URI = 'http://localhost:3000/auth/callback'
+BATTLE_NET_AUTH_URL = 'https://oauth.battle.net/authorize'
+BATTLE_NET_TOKEN_URL = 'https://oauth.battle.net/token'
+BATTLE_NET_API_URL = 'https://us.api.blizzard.com'
+BATTLE_NET_USERINFO_URL = 'https://us.battle.net/oauth/userinfo'
+BATTLE_NET_REGION = 'us'
+BATTLE_NET_SCOPE = 'wow.profile openid'
 
 async def get_battle_net_token():
-    """Get Battle.net OAuth token"""
-    token_url = f"https://{BATTLE_NET_REGION}.battle.net/oauth/token"
-    data = {
-        "grant_type": "client_credentials",
-        "client_id": BATTLE_NET_CLIENT_ID,
-        "client_secret": BATTLE_NET_CLIENT_SECRET
-    }
-    response = requests.post(token_url, data=data)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to get Battle.net token")
-    return response.json()["access_token"]
+    """Get a Battle.net API token using client credentials"""
+    if not BATTLE_NET_CLIENT_ID or not BATTLE_NET_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Battle.net credentials not configured")
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                BATTLE_NET_TOKEN_URL,
+                data={
+                    'grant_type': 'client_credentials',
+                    'client_id': BATTLE_NET_CLIENT_ID,
+                    'client_secret': BATTLE_NET_CLIENT_SECRET
+                }
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Failed to get Battle.net token")
+            
+            data = response.json()
+            return data['access_token']
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting Battle.net token: {str(e)}")
 
-@app.get("/api/character/{realm}/{name}")
-async def get_character(realm: str, name: str):
-    """Get character information from Battle.net API"""
-    token = await get_battle_net_token()
-    headers = {"Authorization": f"Bearer {token}"}
+class OAuthRequest(BaseModel):
+    state: str
+
+class OAuthCallback(BaseModel):
+    code: str
+    state: str
+
+@app.post('/api/auth/battlenet')
+async def get_battlenet_auth_url(request: OAuthRequest):
+    if not BATTLE_NET_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Battle.net client ID not configured")
     
-    # URL for WoW Classic Era API
-    url = f"https://{BATTLE_NET_REGION}.api.blizzard.com/data/wow/character/{realm}/{name}"
-    params = {
-        "namespace": "profile-classic1x-us",
-        "locale": "en_US"
-    }
+    auth_url = f"{BATTLE_NET_AUTH_URL}?client_id={BATTLE_NET_CLIENT_ID}&redirect_uri={BATTLE_NET_REDIRECT_URI}&response_type=code&state={request.state}&scope={BATTLE_NET_SCOPE}"
+    return {"url": auth_url}
+
+@app.post('/api/auth/battlenet/callback')
+async def handle_battlenet_callback(callback: OAuthCallback):
+    if not BATTLE_NET_CLIENT_ID or not BATTLE_NET_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Battle.net credentials not configured")
     
-    response = requests.get(url, headers=headers, params=params)
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail="Character not found")
+    try:
+        # Exchange code for access token
+        async with httpx.AsyncClient() as client:
+            print(f"Exchanging code for token with redirect URI: {BATTLE_NET_REDIRECT_URI}")
+            token_response = await client.post(
+                BATTLE_NET_TOKEN_URL,
+                data={
+                    'grant_type': 'authorization_code',
+                    'client_id': BATTLE_NET_CLIENT_ID,
+                    'client_secret': BATTLE_NET_CLIENT_SECRET,
+                    'code': callback.code,
+                    'redirect_uri': BATTLE_NET_REDIRECT_URI,
+                    'scope': BATTLE_NET_SCOPE
+                }
+            )
+            
+            if token_response.status_code != 200:
+                error_detail = f"Token exchange failed: {token_response.text}"
+                print(error_detail)
+                raise HTTPException(status_code=token_response.status_code, detail=error_detail)
+            
+            token_data = token_response.json()
+            
+            if 'access_token' not in token_data:
+                error_detail = "No access token in response"
+                print(error_detail)
+                raise HTTPException(status_code=400, detail=error_detail)
+            
+            # Get user profile
+            print("Fetching user profile...")
+            profile_response = await client.get(
+                BATTLE_NET_USERINFO_URL,
+                headers={
+                    'Authorization': f"Bearer {token_data['access_token']}"
+                }
+            )
+            
+            if profile_response.status_code != 200:
+                error_detail = f"Profile fetch failed: {profile_response.text}"
+                print(error_detail)
+                raise HTTPException(status_code=profile_response.status_code, detail=error_detail)
+            
+            profile_data = profile_response.json()
+            print(f"Successfully authenticated user: {profile_data}")
+            
+            # Extract battletag from the profile data
+            battletag = profile_data.get('battletag')
+            if not battletag:
+                raise HTTPException(status_code=400, detail="No battletag found in profile data")
+            
+            return {
+                'access_token': token_data['access_token'],
+                'profile': {
+                    'id': profile_data.get('id'),
+                    'battletag': battletag
+                }
+            }
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+
+@app.get('/api/character/{realm}/{name}')
+async def get_character_info(realm: str, name: str, request: Request):
+    access_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No access token provided")
     
-    return response.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            # Get character profile
+            profile_response = await client.get(
+                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}",
+                headers={'Authorization': f"Bearer {access_token}"},
+                params={'namespace': 'profile-us', 'locale': 'en_US'}
+            )
+            profile_data = profile_response.json()
+            
+            # Get character equipment
+            equipment_response = await client.get(
+                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}/equipment",
+                headers={'Authorization': f"Bearer {access_token}"},
+                params={'namespace': 'profile-us', 'locale': 'en_US'}
+            )
+            equipment_data = equipment_response.json()
+            
+            # Get character PvP stats
+            pvp_response = await client.get(
+                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}/pvp-summary",
+                headers={'Authorization': f"Bearer {access_token}"},
+                params={'namespace': 'profile-us', 'locale': 'en_US'}
+            )
+            pvp_data = pvp_response.json()
+            
+            return {
+                'profile': profile_data,
+                'equipment': equipment_data,
+                'pvp': pvp_data
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/pvp-leaderboard/{bracket}")
 async def get_pvp_leaderboard(bracket: str):
@@ -61,28 +185,30 @@ async def get_pvp_leaderboard(bracket: str):
     token = await get_battle_net_token()
     headers = {
         "Authorization": f"Bearer {token}",
-        "Battlenet-Namespace": "dynamic-classic-us"  # Using header for namespace
+        "Battlenet-Namespace": "dynamic-classic-us"
     }
     
-    # URL for PvP leaderboard API
-    url = f"https://{BATTLE_NET_REGION}.api.blizzard.com/data/wow/pvp-region/us/pvp-season/11/pvp-leaderboard/{bracket}"
+    url = f"{BATTLE_NET_API_URL}/data/wow/pvp-region/us/pvp-season/11/pvp-leaderboard/{bracket}"
     params = {
         "locale": "en_US"
     }
     
     try:
-        response = requests.get(url, headers=headers, params=params)
-        response.raise_for_status()  # Raise an exception for bad status codes
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 404:
-            raise HTTPException(status_code=404, detail="PvP leaderboard not found. Please check if the bracket is valid (2v2, 3v3, or 5v5)")
-        elif response.status_code == 401:
-            raise HTTPException(status_code=401, detail="Unauthorized. Please check your Battle.net API credentials")
-        else:
-            raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch PvP leaderboard: {str(e)}")
-    except requests.exceptions.RequestException as e:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+            
+            if response.status_code == 404:
+                raise HTTPException(status_code=404, detail="PvP leaderboard not found. Please check if the bracket is valid (2v2, 3v3, or 5v5)")
+            elif response.status_code == 401:
+                raise HTTPException(status_code=401, detail="Unauthorized. Please check your Battle.net API credentials")
+            elif response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch PvP leaderboard: {response.text}")
+            
+            return response.json()
+    except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Error connecting to Battle.net API: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 @app.get("/")
 async def root():
