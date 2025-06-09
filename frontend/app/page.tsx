@@ -25,7 +25,9 @@ import {
   ToggleButtonGroup,
   ToggleButton,
   Snackbar,
-  Alert
+  Alert,
+  Link,
+  TablePagination
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 
@@ -145,7 +147,11 @@ interface LeaderboardEntry {
     id: number;
     name: string;
     realm: {
-      name: string;
+      key: {
+        href: string;
+      };
+      id: number;
+      slug: string;
     };
   };
   rating: number;
@@ -171,6 +177,9 @@ export default function Home() {
   const [region, setRegion] = useState<'US' | 'EU'>('US');
   const [realmOptions, setRealmOptions] = useState<string[]>(US_SERVERS);
   const [nameOptions, setNameOptions] = useState<string[]>([]);
+  const [gameVersion, setGameVersion] = useState<'retail' | 'classic'>('retail');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
 
   // Function to determine region based on country code
   const getRegionFromCountry = (countryCode: string): 'US' | 'EU' => {
@@ -205,12 +214,12 @@ export default function Home() {
   useEffect(() => {
     setRealmOptions(region === 'US' ? US_SERVERS : EU_SERVERS);
     fetchLeaderboard();
-  }, [selectedBracket, region]);
+  }, [selectedBracket, region, gameVersion]);
 
   const fetchLeaderboard = async () => {
     setLeaderboardLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/pvp-leaderboard/${selectedBracket}`);
+      const response = await fetch(`http://localhost:8000/api/pvp-leaderboard/${selectedBracket}?game_version=${gameVersion}`);
       if (!response.ok) {
         throw new Error('Failed to fetch leaderboard');
       }
@@ -254,6 +263,41 @@ export default function Home() {
 
   const handleCloseError = () => {
     setShowError(false);
+  };
+
+  // Helper function to format text
+  const formatText = (text: string): string => {
+    if (!text) return '';
+    
+    // Handle special cases
+    const specialCases: { [key: string]: string } = {
+      'horde': 'Horde',
+      'alliance': 'Alliance',
+      '2v2': '2v2',
+      '3v3': '3v3',
+      '5v5': '5v5'
+    };
+
+    // Check if it's a special case
+    const lowerText = text.toLowerCase();
+    if (specialCases[lowerText]) {
+      return specialCases[lowerText];
+    }
+
+    // Format realm names and other text
+    return text
+      .split(/[-_]/) // Split by hyphen or underscore
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
+  const handleChangePage = (event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
   };
 
   return (
@@ -362,23 +406,44 @@ export default function Home() {
             <Typography variant="h4">
               PvP Leaderboard
             </Typography>
-            <ToggleButtonGroup
-              value={selectedBracket}
-              exclusive
-              onChange={(event, newBracket) => {
-                if (newBracket !== null) {
-                  setSelectedBracket(newBracket);
-                }
-              }}
-              aria-label="bracket selection"
-            >
-              <ToggleButton value="2v2" aria-label="2v2 bracket">
-                2v2
-              </ToggleButton>
-              <ToggleButton value="3v3" aria-label="3v3 bracket">
-                3v3
-              </ToggleButton>
-            </ToggleButtonGroup>
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <ToggleButtonGroup
+                value={gameVersion}
+                exclusive
+                onChange={(event, newVersion) => {
+                  if (newVersion !== null) {
+                    setGameVersion(newVersion);
+                  }
+                }}
+                aria-label="game version"
+                size="small"
+              >
+                <ToggleButton value="retail" aria-label="retail">
+                  Retail
+                </ToggleButton>
+                <ToggleButton value="classic" aria-label="classic">
+                  Classic
+                </ToggleButton>
+              </ToggleButtonGroup>
+              <ToggleButtonGroup
+                value={selectedBracket}
+                exclusive
+                onChange={(event, newBracket) => {
+                  if (newBracket !== null) {
+                    setSelectedBracket(newBracket);
+                  }
+                }}
+                aria-label="bracket selection"
+                size="small"
+              >
+                <ToggleButton value="2v2" aria-label="2v2 bracket">
+                  2v2
+                </ToggleButton>
+                <ToggleButton value="3v3" aria-label="3v3 bracket">
+                  3v3
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
           </Box>
 
           {leaderboardLoading ? (
@@ -386,30 +451,50 @@ export default function Home() {
               <CircularProgress />
             </Box>
           ) : leaderboard && (
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Rank</TableCell>
-                    <TableCell>Rating</TableCell>
-                    <TableCell>Name</TableCell>
-                    <TableCell>Realm</TableCell>
-                    <TableCell>Faction</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {leaderboard.entries?.slice(0, 100).map((entry, index) => (
-                    <TableRow key={entry.character.id}>
-                      <TableCell>{index + 1}</TableCell>
-                      <TableCell>{entry.rating}</TableCell>
-                      <TableCell>{entry.character.name}</TableCell>
-                      <TableCell>{entry.character.realm.name}</TableCell>
-                      <TableCell>{entry.faction.type}</TableCell>
+            <>
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Rank</TableCell>
+                      <TableCell>Rating</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Realm</TableCell>
+                      <TableCell>Faction</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {leaderboard.entries
+                      ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                      .map((entry, index) => (
+                        <TableRow key={entry.character.id}>
+                          <TableCell>{page * rowsPerPage + index + 1}</TableCell>
+                          <TableCell>{entry.rating}</TableCell>
+                          <TableCell>
+                            <Link
+                              href={`/player/${entry.character.realm.slug}/${entry.character.name}?game_version=${gameVersion}`}
+                              style={{ textDecoration: 'none', color: 'inherit' }}
+                            >
+                              {formatText(entry.character.name)}
+                            </Link>
+                          </TableCell>
+                          <TableCell>{formatText(entry.character.realm.slug)}</TableCell>
+                          <TableCell>{formatText(entry.faction.type)}</TableCell>
+                        </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <TablePagination
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                component="div"
+                count={leaderboard.entries?.length || 0}
+                rowsPerPage={rowsPerPage}
+                page={page}
+                onPageChange={handleChangePage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+              />
+            </>
           )}
         </Paper>
       </Box>

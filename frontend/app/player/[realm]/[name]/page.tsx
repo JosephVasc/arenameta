@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   Container,
@@ -24,12 +24,6 @@ import {
   Chip,
   Button,
   Stack,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  IconButton,
-  Tooltip,
 } from '@mui/material';
 import {
   SportsEsports as GameIcon,
@@ -38,7 +32,6 @@ import {
   Inventory as EquipmentIcon,
   Group as GuildIcon,
   Timeline as StatsIcon,
-  Star as StarIcon,
 } from '@mui/icons-material';
 
 interface TabPanelProps {
@@ -54,8 +47,8 @@ function TabPanel(props: TabPanelProps) {
     <div
       role="tabpanel"
       hidden={value !== index}
-      id={`profile-tabpanel-${index}`}
-      aria-labelledby={`profile-tab-${index}`}
+      id={`player-tabpanel-${index}`}
+      aria-labelledby={`player-tab-${index}`}
       {...other}
     >
       {value === index && (
@@ -67,18 +60,14 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-export default function Profile() {
-  const { isAuthenticated, profile, accessToken } = useAuth();
+export default function PlayerPage({ params }: { params: { realm: string; name: string } }) {
+  const { isAuthenticated, accessToken } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [tabValue, setTabValue] = useState(0);
   const [characterData, setCharacterData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gameVersion, setGameVersion] = useState<'retail' | 'classic'>('retail');
-  const [accountData, setAccountData] = useState<any>(null);
-  const [selectedCharacter, setSelectedCharacter] = useState<string>('');
-  const [settingMain, setSettingMain] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -86,74 +75,41 @@ export default function Profile() {
       return;
     }
 
-    const fetchAccountData = async () => {
+    const fetchCharacterData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // First, get the main character from our database
-        const mainCharResponse = await fetch('http://localhost:8000/api/character/main', {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
-        });
+        // Format realm and character name according to API requirements
+        const realmSlug = params.realm.toLowerCase();
+        const characterName = params.name.toLowerCase();
 
-        let mainChar = null;
-        if (mainCharResponse.ok) {
-          const mainCharData = await mainCharResponse.json();
-          if (mainCharData.realm && mainCharData.name) {
-            mainChar = {
-              realm: { slug: mainCharData.realm },
-              name: mainCharData.name
-            };
-          }
-        }
-
-        // Then get the account profile
-        const response = await fetch('http://localhost:8000/api/account/profile', {
+        // Fetch detailed character data
+        const response = await fetch('http://localhost:8000/api/character', {
+          method: 'POST',
           headers: {
-            'Authorization': `Bearer ${accessToken}`
-          }
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            realm: realmSlug,
+            name: characterName,
+            game_version: gameVersion
+          })
         });
 
         if (!response.ok) {
-          throw new Error('Failed to fetch account data');
+          const errorData = await response.json();
+          if (response.status === 403) {
+            // If we get a 403, try to refresh the token or redirect to login
+            router.push('/');
+            throw new Error('Authentication required. Please log in again.');
+          }
+          throw new Error(errorData.detail || 'Failed to fetch character data');
         }
 
         const data = await response.json();
-        setAccountData(data);
-
-        // Get characters for the current game version
-        const characters = gameVersion === 'retail' ? data.retail?.wow_accounts?.[0]?.characters : data.classic?.wow_accounts?.[0]?.characters;
-        
-        if (characters && characters.length > 0) {
-          // Filter characters above level 70
-          const highLevelChars = characters.filter((char: any) => char.level >= 70);
-          
-          if (highLevelChars.length > 0) {
-            // If we have a main character from our database, use it
-            let selectedChar;
-            if (mainChar) {
-              selectedChar = highLevelChars.find(
-                (char: any) => 
-                  char.realm.slug.toLowerCase() === mainChar.realm.slug.toLowerCase() && 
-                  char.name.toLowerCase() === mainChar.name.toLowerCase()
-              );
-            }
-            
-            // If main character not found or not set, use the highest level character
-            if (!selectedChar) {
-              selectedChar = highLevelChars[0];
-            }
-
-            setSelectedCharacter(`${selectedChar.realm.slug}-${selectedChar.name}`);
-            fetchCharacterData(selectedChar.realm.slug, selectedChar.name);
-          } else {
-            setError('No characters found above level 70');
-          }
-        } else {
-          setError('No characters found');
-        }
+        setCharacterData(data);
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
@@ -162,40 +118,10 @@ export default function Profile() {
       }
     };
 
-    fetchAccountData();
-  }, [isAuthenticated, router, accessToken, gameVersion]);
-
-  const fetchCharacterData = async (realm: string, name: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch('http://localhost:8000/api/character', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          realm,
-          name,
-          game_version: gameVersion
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch character data');
-      }
-
-      const data = await response.json();
-      setCharacterData(data);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
-    } finally {
-      setLoading(false);
+    if (accessToken) {
+      fetchCharacterData();
     }
-  };
+  }, [isAuthenticated, router, accessToken, gameVersion, params.realm, params.name]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
@@ -203,44 +129,6 @@ export default function Profile() {
 
   const handleGameVersionChange = (version: 'retail' | 'classic') => {
     setGameVersion(version);
-  };
-
-  const handleCharacterChange = (event: any) => {
-    const [realm, name] = event.target.value.split('-');
-    setSelectedCharacter(event.target.value);
-    fetchCharacterData(realm, name);
-  };
-
-  const handleSetMainCharacter = async () => {
-    try {
-      setSettingMain(true);
-      const [realm, name] = selectedCharacter.split('-');
-      
-      const response = await fetch('http://localhost:8000/api/character/set-main', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          realm,
-          name,
-          game_version: gameVersion
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to set main character');
-      }
-
-      // Refresh the page to update the character list
-      window.location.reload();
-    } catch (err) {
-      console.error('Error setting main character:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while setting main character');
-    } finally {
-      setSettingMain(false);
-    }
   };
 
   if (!isAuthenticated) {
@@ -297,48 +185,11 @@ export default function Profile() {
               </Button>
             </Stack>
           </Grid>
-          <Grid item>
-            <FormControl sx={{ minWidth: 200 }}>
-              <InputLabel>Select Character</InputLabel>
-              <Select
-                value={selectedCharacter}
-                onChange={handleCharacterChange}
-                label="Select Character"
-              >
-                {accountData?.[gameVersion]?.wow_accounts?.[0]?.characters
-                  ?.filter((char: any) => char.level >= 70)
-                  .map((char: any) => (
-                    <MenuItem 
-                      key={`${char.realm.slug}-${char.name}`} 
-                      value={`${char.realm.slug}-${char.name}`}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                        <Typography>
-                          {char.name} ({char.realm.name})
-                        </Typography>
-                        {char.is_main && (
-                          <StarIcon color="primary" sx={{ ml: 1 }} />
-                        )}
-                      </Box>
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
-            <Tooltip title="Set as main character">
-              <IconButton 
-                onClick={handleSetMainCharacter}
-                disabled={settingMain}
-                sx={{ ml: 1 }}
-              >
-                <StarIcon color={characterData?.profile?.character?.is_main ? "primary" : "action"} />
-              </IconButton>
-            </Tooltip>
-          </Grid>
         </Grid>
       </Paper>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tabValue} onChange={handleTabChange} aria-label="profile tabs">
+        <Tabs value={tabValue} onChange={handleTabChange} aria-label="player tabs">
           <Tab icon={<GameIcon />} label="Overview" />
           <Tab icon={<EquipmentIcon />} label="Equipment" />
           <Tab icon={<PvPIcon />} label="PvP" />

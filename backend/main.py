@@ -5,10 +5,33 @@ import httpx
 import os
 from dotenv import load_dotenv
 from enum import Enum
+from sqlalchemy import create_engine, Column, String, Boolean, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 load_dotenv()
 
 app = FastAPI()
+
+# Database configuration
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./arenameta.db')
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Database models
+class MainCharacter(Base):
+    __tablename__ = "main_characters"
+
+    id = Column(String, primary_key=True)  # Battle.net account ID
+    battletag = Column(String)
+    realm = Column(String)
+    name = Column(String)
+    game_version = Column(String)
+    is_main = Column(Boolean, default=True)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 # CORS middleware configuration
 app.add_middleware(
@@ -38,6 +61,18 @@ BATTLE_NET_SCOPE = 'wow.profile openid'
 NAMESPACES = {
     GameVersion.RETAIL: 'profile-us',
     GameVersion.CLASSIC: 'profile-classic-us'
+}
+
+# Dynamic namespace configuration for game data
+DYNAMIC_NAMESPACES = {
+    GameVersion.RETAIL: 'dynamic-us',
+    GameVersion.CLASSIC: 'dynamic-classic-us'
+}
+
+# Season configuration
+SEASONS = {
+    GameVersion.RETAIL: 33,
+    GameVersion.CLASSIC: 1
 }
 
 async def get_battle_net_token():
@@ -72,6 +107,11 @@ class OAuthCallback(BaseModel):
     state: str
 
 class CharacterRequest(BaseModel):
+    realm: str
+    name: str
+    game_version: GameVersion
+
+class SetMainCharacterRequest(BaseModel):
     realm: str
     name: str
     game_version: GameVersion
@@ -315,34 +355,167 @@ async def get_character_info(request: CharacterRequest, req: Request):
         print(f"Unexpected error: {error_detail}") # Debug log
         raise HTTPException(status_code=500, detail=error_detail)
 
+@app.post('/api/character/set-main')
+async def set_main_character(request: SetMainCharacterRequest, req: Request):
+    """Set a character as the main character for the specified game version"""
+    access_token = req.headers.get('Authorization', '').replace('Bearer ', '')
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+
+    try:
+        # Get user profile to get battletag
+        async with httpx.AsyncClient() as client:
+            profile_response = await client.get(
+                BATTLE_NET_USERINFO_URL,
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                }
+            )
+            
+            if profile_response.status_code != 200:
+                raise HTTPException(status_code=profile_response.status_code, detail="Failed to get user profile")
+            
+            profile_data = profile_response.json()
+            battletag = profile_data.get('battletag')
+            account_id = profile_data.get('id')
+            
+            if not battletag or not account_id:
+                raise HTTPException(status_code=400, detail="No battletag or account ID found in profile data")
+
+            # Update database
+            db = SessionLocal()
+            try:
+                # Remove existing main character for this game version
+                db.query(MainCharacter).filter(
+                    MainCharacter.id == account_id,
+                    MainCharacter.game_version == request.game_version
+                ).delete()
+
+                # Add new main character
+                main_char = MainCharacter(
+                    id=account_id,
+                    battletag=battletag,
+                    realm=request.realm.lower(),
+                    name=request.name.lower(),
+                    game_version=request.game_version,
+                    is_main=True
+                )
+                db.add(main_char)
+                db.commit()
+                
+                return {"message": "Main character set successfully"}
+            finally:
+                db.close()
+
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(f"HTTP error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+@app.get('/api/character/main')
+async def get_main_character(req: Request):
+    """Get the main character for the specified game version"""
+    access_token = req.headers.get('Authorization', '').replace('Bearer ', '')
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+
+    try:
+        # Get user profile to get account ID
+        async with httpx.AsyncClient() as client:
+            profile_response = await client.get(
+                BATTLE_NET_USERINFO_URL,
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                }
+            )
+            
+            if profile_response.status_code != 200:
+                raise HTTPException(status_code=profile_response.status_code, detail="Failed to get user profile")
+            
+            profile_data = profile_response.json()
+            account_id = profile_data.get('id')
+            
+            if not account_id:
+                raise HTTPException(status_code=400, detail="No account ID found in profile data")
+
+            # Get main character from database
+            db = SessionLocal()
+            try:
+                main_char = db.query(MainCharacter).filter(
+                    MainCharacter.id == account_id
+                ).first()
+                
+                if not main_char:
+                    return {"message": "No main character set"}
+                
+                return {
+                    "realm": main_char.realm,
+                    "name": main_char.name,
+                    "game_version": main_char.game_version
+                }
+            finally:
+                db.close()
+
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(f"HTTP error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
 @app.get("/api/pvp-leaderboard/{bracket}")
 async def get_pvp_leaderboard(bracket: str, game_version: GameVersion = GameVersion.RETAIL):
     """Get PvP leaderboard information for both retail and classic"""
     token = await get_battle_net_token()
-    namespace = NAMESPACES[game_version]
+    namespace = DYNAMIC_NAMESPACES[game_version]  # Use dynamic namespace for leaderboard
+    season = SEASONS[game_version]
     
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Battlenet-Namespace": namespace
+    # Format bracket to match Battle.net API requirements
+    bracket_map = {
+        '2v2': '2v2',
+        '3v3': '3v3',
+        '5v5': '5v5'
     }
     
-    url = f"{BATTLE_NET_API_URL}/data/wow/pvp-region/us/pvp-season/11/pvp-leaderboard/{bracket}"
-    params = {
-        "locale": "en_US"
-    }
+    if bracket not in bracket_map:
+        raise HTTPException(status_code=400, detail="Invalid bracket. Must be one of: 2v2, 3v3, 5v5")
+    
+    formatted_bracket = bracket_map[bracket]
     
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers, params=params)
+            # Get the leaderboard for the current season
+            leaderboard_url = f"{BATTLE_NET_API_URL}/data/wow/pvp-season/{season}/pvp-leaderboard/{formatted_bracket}"
+            print(f"Fetching leaderboard from: {leaderboard_url}") # Debug log
             
-            if response.status_code == 404:
+            leaderboard_response = await client.get(
+                leaderboard_url,
+                headers={
+                    "Authorization": f"Bearer {token}"
+                },
+                params={
+                    "namespace": namespace,
+                    "locale": "en_US"
+                }
+            )
+            
+            if leaderboard_response.status_code == 404:
                 raise HTTPException(status_code=404, detail="PvP leaderboard not found. Please check if the bracket is valid (2v2, 3v3, or 5v5)")
-            elif response.status_code == 401:
+            elif leaderboard_response.status_code == 401:
                 raise HTTPException(status_code=401, detail="Unauthorized. Please check your Battle.net API credentials")
-            elif response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail=f"Failed to fetch PvP leaderboard: {response.text}")
+            elif leaderboard_response.status_code != 200:
+                raise HTTPException(
+                    status_code=leaderboard_response.status_code,
+                    detail=f"Failed to fetch PvP leaderboard: {leaderboard_response.text}"
+                )
             
-            return response.json()
+            return leaderboard_response.json()
     except httpx.HTTPError as e:
         raise HTTPException(status_code=500, detail=f"Error connecting to Battle.net API: {str(e)}")
     except Exception as e:

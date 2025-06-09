@@ -283,6 +283,24 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
             <Box onClick={handleLogoClick} sx={{ cursor: 'pointer' }}>
               <WoWLogo />
             </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                ml: 2,
+                backgroundColor: 'background.paper',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                border: '1px solid',
+                borderColor: 'divider',
+                fontSize: '0.875rem',
+                color: 'text.secondary'
+              }}
+            >
+              <Typography variant="body2">
+                <strong>1,234</strong> players online
+              </Typography>
+            </Box>
             {/* Game Version Selector */}
             <Box
               sx={{
@@ -335,41 +353,7 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
                 Retail
               </Button>
             </Box>
-            {/* User Count Display */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                ml: 2,
-                backgroundColor: 'background.paper',
-                padding: '4px 12px',
-                borderRadius: '16px',
-                border: '1px solid',
-                borderColor: 'divider',
-                fontSize: '0.875rem',
-                color: 'text.secondary'
-              }}
-            >
-              <Typography variant="body2">
-                <strong>1,234</strong> players online
-              </Typography>
-            </Box>
           </Box>
-
-          {/* Center section - Title */}
-          <Typography
-            variant="h6"
-            component="div"
-            sx={{
-              position: 'absolute',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              fontWeight: 'bold',
-              color: 'primary.main'
-            }}
-          >
-            ArenaMeta
-          </Typography>
 
           {/* Right section - Social Links and Auth */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
