@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import httpx
 import os
 from dotenv import load_dotenv
+from enum import Enum
 
 load_dotenv()
 
@@ -18,6 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class GameVersion(str, Enum):
+    RETAIL = "retail"
+    CLASSIC = "classic"
+
 # Battle.net OAuth configuration
 BATTLE_NET_CLIENT_ID = os.getenv('BATTLE_NET_CLIENT_ID')
 BATTLE_NET_CLIENT_SECRET = os.getenv('BATTLE_NET_CLIENT_SECRET')
@@ -28,6 +33,12 @@ BATTLE_NET_API_URL = 'https://us.api.blizzard.com'
 BATTLE_NET_USERINFO_URL = 'https://us.battle.net/oauth/userinfo'
 BATTLE_NET_REGION = 'us'
 BATTLE_NET_SCOPE = 'wow.profile openid'
+
+# Namespace configuration
+NAMESPACES = {
+    GameVersion.RETAIL: 'profile-us',
+    GameVersion.CLASSIC: 'profile-classic-us'
+}
 
 async def get_battle_net_token():
     """Get a Battle.net API token using client credentials"""
@@ -59,6 +70,11 @@ class OAuthRequest(BaseModel):
 class OAuthCallback(BaseModel):
     code: str
     state: str
+
+class CharacterRequest(BaseModel):
+    realm: str
+    name: str
+    game_version: GameVersion
 
 @app.post('/api/auth/battlenet')
 async def get_battlenet_auth_url(request: OAuthRequest):
@@ -139,53 +155,175 @@ async def handle_battlenet_callback(callback: OAuthCallback):
         print(error_detail)
         raise HTTPException(status_code=500, detail=error_detail)
 
-@app.get('/api/character/{realm}/{name}')
-async def get_character_info(realm: str, name: str, request: Request):
-    access_token = request.headers.get('Authorization', '').replace('Bearer ', '')
+@app.get('/api/account/profile')
+async def get_account_profile(req: Request):
+    """Get account profile and character list for both retail and classic"""
+    access_token = req.headers.get('Authorization', '').replace('Bearer ', '')
     if not access_token:
         raise HTTPException(status_code=401, detail="No access token provided")
-    
+
     try:
         async with httpx.AsyncClient() as client:
+            # Get retail profile
+            retail_response = await client.get(
+                f"{BATTLE_NET_API_URL}/profile/user/wow",
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': 'profile-us',
+                    'locale': 'en_US'
+                }
+            )
+            
+            if retail_response.status_code != 200:
+                print(f"Retail profile fetch error: {retail_response.text}") # Debug log
+                retail_data = None
+            else:
+                retail_data = retail_response.json()
+                print(f"Retail profile data received: {retail_data}") # Debug log
+
+            # Get classic profile
+            classic_response = await client.get(
+                f"{BATTLE_NET_API_URL}/profile/user/wow",
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': 'profile-classic-us',
+                    'locale': 'en_US'
+                }
+            )
+            
+            if classic_response.status_code != 200:
+                print(f"Classic profile fetch error: {classic_response.text}") # Debug log
+                classic_data = None
+            else:
+                classic_data = classic_response.json()
+                print(f"Classic profile data received: {classic_data}") # Debug log
+
+            return {
+                'retail': retail_data,
+                'classic': classic_data
+            }
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(f"HTTP error: {error_detail}") # Debug log
+        raise HTTPException(status_code=500, detail=error_detail)
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}") # Debug log
+        raise HTTPException(status_code=500, detail=error_detail)
+
+@app.post('/api/character')
+async def get_character_info(request: CharacterRequest, req: Request):
+    """Get character information for both retail and classic"""
+    access_token = req.headers.get('Authorization', '').replace('Bearer ', '')
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            namespace = NAMESPACES[request.game_version]
+            
+            # Format realm and character name
+            realm_slug = request.realm.lower()
+            character_name = request.name.lower()
+            
+            # Construct the base URL with proper formatting
+            base_url = f"{BATTLE_NET_API_URL}/profile/wow/character/{realm_slug}/{character_name}"
+            print(f"Fetching character data from: {base_url}") # Debug log
+            
             # Get character profile
             profile_response = await client.get(
-                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}",
-                headers={'Authorization': f"Bearer {access_token}"},
-                params={'namespace': 'profile-us', 'locale': 'en_US'}
+                base_url,
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': namespace,
+                    'locale': 'en_US'
+                }
             )
+            
+            if profile_response.status_code != 200:
+                error_detail = f"Failed to fetch character profile: {profile_response.text}"
+                print(f"Profile fetch error: {error_detail}") # Debug log
+                raise HTTPException(
+                    status_code=profile_response.status_code,
+                    detail=error_detail
+                )
+            
             profile_data = profile_response.json()
+            print(f"Profile data received: {profile_data}") # Debug log
             
             # Get character equipment
             equipment_response = await client.get(
-                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}/equipment",
-                headers={'Authorization': f"Bearer {access_token}"},
-                params={'namespace': 'profile-us', 'locale': 'en_US'}
+                f"{base_url}/equipment",
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': namespace,
+                    'locale': 'en_US'
+                }
             )
-            equipment_data = equipment_response.json()
+            equipment_data = equipment_response.json() if equipment_response.status_code == 200 else None
             
             # Get character PvP stats
             pvp_response = await client.get(
-                f"{BATTLE_NET_API_URL}/profile/wow/character/{realm}/{name}/pvp-summary",
-                headers={'Authorization': f"Bearer {access_token}"},
-                params={'namespace': 'profile-us', 'locale': 'en_US'}
+                f"{base_url}/pvp-summary",
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': namespace,
+                    'locale': 'en_US'
+                }
             )
-            pvp_data = pvp_response.json()
+            pvp_data = pvp_response.json() if pvp_response.status_code == 200 else None
+            
+            # Get character media (avatar)
+            media_response = await client.get(
+                f"{base_url}/character-media",
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                },
+                params={
+                    'namespace': namespace,
+                    'locale': 'en_US'
+                }
+            )
+            media_data = media_response.json() if media_response.status_code == 200 else None
             
             return {
-                'profile': profile_data,
+                'profile': {
+                    'character': {
+                        **profile_data,
+                        'media': media_data
+                    }
+                },
                 'equipment': equipment_data,
                 'pvp': pvp_data
             }
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(f"HTTP error: {error_detail}") # Debug log
+        raise HTTPException(status_code=500, detail=error_detail)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}") # Debug log
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/api/pvp-leaderboard/{bracket}")
-async def get_pvp_leaderboard(bracket: str):
-    """Get PvP leaderboard information"""
+async def get_pvp_leaderboard(bracket: str, game_version: GameVersion = GameVersion.RETAIL):
+    """Get PvP leaderboard information for both retail and classic"""
     token = await get_battle_net_token()
+    namespace = NAMESPACES[game_version]
+    
     headers = {
         "Authorization": f"Bearer {token}",
-        "Battlenet-Namespace": "dynamic-classic-us"
+        "Battlenet-Namespace": namespace
     }
     
     url = f"{BATTLE_NET_API_URL}/data/wow/pvp-region/us/pvp-season/11/pvp-leaderboard/{bracket}"
