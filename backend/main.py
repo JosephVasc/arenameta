@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from typing import Optional
 import httpx
 import os
 from dotenv import load_dotenv
@@ -29,6 +30,16 @@ class MainCharacter(Base):
     name = Column(String)
     game_version = Column(String)
     is_main = Column(Boolean, default=True)
+
+class SocialLinks(Base):
+    __tablename__ = "social_links"
+
+    battletag = Column(String, primary_key=True)
+    discord = Column(String, nullable=True)
+    twitch = Column(String, nullable=True)
+    twitter = Column(String, nullable=True)
+    youtube = Column(String, nullable=True)
+    instagram = Column(String, nullable=True)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -115,6 +126,13 @@ class SetMainCharacterRequest(BaseModel):
     realm: str
     name: str
     game_version: GameVersion
+
+class SocialLinksRequest(BaseModel):
+    discord: Optional[str] = None
+    twitch: Optional[str] = None
+    twitter: Optional[str] = None
+    youtube: Optional[str] = None
+    instagram: Optional[str] = None
 
 @app.post('/api/auth/battlenet')
 async def get_battlenet_auth_url(request: OAuthRequest):
@@ -520,6 +538,91 @@ async def get_pvp_leaderboard(bracket: str, game_version: GameVersion = GameVers
         raise HTTPException(status_code=500, detail=f"Error connecting to Battle.net API: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@app.post('/api/social-links')
+async def update_social_links(request: SocialLinksRequest, req: Request):
+    """Update social media links for a user"""
+    access_token = req.headers.get('Authorization', '').replace('Bearer ', '')
+    if not access_token:
+        raise HTTPException(status_code=401, detail="No access token provided")
+
+    try:
+        # Get user profile to get battletag
+        async with httpx.AsyncClient() as client:
+            profile_response = await client.get(
+                BATTLE_NET_USERINFO_URL,
+                headers={
+                    'Authorization': f"Bearer {access_token}"
+                }
+            )
+            
+            if profile_response.status_code != 200:
+                raise HTTPException(status_code=profile_response.status_code, detail="Failed to get user profile")
+            
+            profile_data = profile_response.json()
+            battletag = profile_data.get('battletag')
+            
+            if not battletag:
+                raise HTTPException(status_code=400, detail="No battletag found in profile data")
+
+            # Update database
+            db = SessionLocal()
+            try:
+                # Check if social links exist for this battletag
+                social_links = db.query(SocialLinks).filter(SocialLinks.battletag == battletag).first()
+                
+                if social_links:
+                    # Update existing social links
+                    for key, value in request.dict().items():
+                        if value is not None:
+                            setattr(social_links, key, value)
+                else:
+                    # Create new social links
+                    social_links = SocialLinks(
+                        battletag=battletag,
+                        **request.dict()
+                    )
+                    db.add(social_links)
+                
+                db.commit()
+                return {"message": "Social links updated successfully"}
+            finally:
+                db.close()
+
+    except httpx.HTTPError as e:
+        error_detail = f"HTTP error occurred: {str(e)}"
+        print(f"HTTP error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
+
+@app.get('/api/social-links/{battletag}')
+async def get_social_links(battletag: str):
+    """Get social media links for a user"""
+    try:
+        db = SessionLocal()
+        try:
+            social_links = db.query(SocialLinks).filter(SocialLinks.battletag == battletag).first()
+            
+            if not social_links:
+                return {"message": "No social links found"}
+            
+            return {
+                "discord": social_links.discord,
+                "twitch": social_links.twitch,
+                "twitter": social_links.twitter,
+                "youtube": social_links.youtube,
+                "instagram": social_links.instagram
+            }
+        finally:
+            db.close()
+
+    except Exception as e:
+        error_detail = f"Unexpected error: {str(e)}"
+        print(f"Unexpected error: {error_detail}")
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @app.get("/")
 async def root():

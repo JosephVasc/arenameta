@@ -23,9 +23,12 @@ import {
   InputLabel,
   Select,
   MenuItem as MuiMenuItem,
-  CircularProgress
+  CircularProgress,
+  ButtonGroup,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import MenuIcon from '@mui/icons-material/Menu';
 import GitHubIcon from '@mui/icons-material/GitHub';
@@ -33,6 +36,9 @@ import TwitterIcon from '@mui/icons-material/Twitter';
 import { SiDiscord } from 'react-icons/si';
 import WoWLogo from './WoWLogo';
 import { useAuth } from '../contexts/AuthContext';
+import { useGameVersion } from '@/contexts/GameVersionContext';
+import { useRegion } from '@/contexts/RegionContext';
+import 'flag-icons/css/flag-icons.min.css';
 
 interface TopBarProps {
   isSidebarOpen: boolean;
@@ -65,11 +71,12 @@ const steps = ['Battle.net Login', 'Character Info', 'Experience'];
 export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) {
   const router = useRouter();
   const auth = useAuth();
+  const { gameVersion, setGameVersion } = useGameVersion();
+  const { region, setRegion } = useRegion();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [isSignupOpen, setIsSignupOpen] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [gameVersion, setGameVersion] = useState<'classic' | 'retail'>('classic');
   const [formData, setFormData] = useState({
     characterClass: '',
     experience: '',
@@ -77,6 +84,12 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
     currentRating: '',
     yearsOfExperience: ''
   });
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  const handleRegionChange = (newRegion: 'us' | 'eu') => {
+    setRegion(newRegion);
+  };
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -314,44 +327,78 @@ export default function TopBar({ isSidebarOpen, onSidebarToggle }: TopBarProps) 
                 overflow: 'hidden'
               }}
             >
-              <Button
-                variant={gameVersion === 'classic' ? 'contained' : 'text'}
-                onClick={() => setGameVersion('classic')}
-                sx={{
-                  borderRadius: 0,
-                  backgroundColor: gameVersion === 'classic' ? 'primary.main' : 'transparent',
-                  color: gameVersion === 'classic' ? 'white' : 'text.primary',
-                  '&:hover': {
-                    backgroundColor: gameVersion === 'classic' ? 'primary.dark' : 'action.hover',
-                  },
-                  px: 2,
-                  py: 0.5,
-                  fontSize: '0.875rem',
-                  textTransform: 'none',
-                  fontWeight: 600
-                }}
-              >
-                Classic
-              </Button>
-              <Button
-                variant={gameVersion === 'retail' ? 'contained' : 'text'}
-                onClick={() => setGameVersion('retail')}
-                sx={{
-                  borderRadius: 0,
-                  backgroundColor: gameVersion === 'retail' ? 'primary.main' : 'transparent',
-                  color: gameVersion === 'retail' ? 'white' : 'text.primary',
-                  '&:hover': {
-                    backgroundColor: gameVersion === 'retail' ? 'primary.dark' : 'action.hover',
-                  },
-                  px: 2,
-                  py: 0.5,
-                  fontSize: '0.875rem',
-                  textTransform: 'none',
-                  fontWeight: 600
-                }}
-              >
-                Retail
-              </Button>
+              <ButtonGroup size="small" variant="contained" color="primary">
+                <Button
+                  onClick={() => setGameVersion('retail')}
+                  variant={gameVersion === 'retail' ? 'contained' : 'outlined'}
+                  sx={{ 
+                    minWidth: '80px',
+                    backgroundColor: gameVersion === 'retail' ? 'primary.main' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: gameVersion === 'retail' ? 'primary.dark' : 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  Retail
+                </Button>
+                <Button
+                  onClick={() => setGameVersion('classic')}
+                  variant={gameVersion === 'classic' ? 'contained' : 'outlined'}
+                  sx={{ 
+                    minWidth: '80px',
+                    backgroundColor: gameVersion === 'classic' ? 'primary.main' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: gameVersion === 'classic' ? 'primary.dark' : 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  Classic
+                </Button>
+              </ButtonGroup>
+            </Box>
+
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                ml: 2,
+                backgroundColor: 'background.paper',
+                borderRadius: '16px',
+                border: '1px solid',
+                borderColor: 'divider',
+                overflow: 'hidden'
+              }}
+            >
+              <ButtonGroup size="small" variant="contained" color="primary">
+                <Button
+                  onClick={() => handleRegionChange('us')}
+                  variant={region === 'us' ? 'contained' : 'outlined'}
+                  sx={{ 
+                    minWidth: '60px',
+                    backgroundColor: region === 'us' ? 'primary.main' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: region === 'us' ? 'primary.dark' : 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  <span className="fi fi-us" style={{ marginRight: '4px' }}></span>
+                  US
+                </Button>
+                <Button
+                  onClick={() => handleRegionChange('eu')}
+                  variant={region === 'eu' ? 'contained' : 'outlined'}
+                  sx={{ 
+                    minWidth: '60px',
+                    backgroundColor: region === 'eu' ? 'primary.main' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: region === 'eu' ? 'primary.dark' : 'rgba(255, 255, 255, 0.1)'
+                    }
+                  }}
+                >
+                  <span className="fi fi-eu" style={{ marginRight: '4px' }}></span>
+                  EU
+                </Button>
+              </ButtonGroup>
             </Box>
           </Box>
 

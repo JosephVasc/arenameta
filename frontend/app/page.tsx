@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGameVersion } from '@/contexts/GameVersionContext';
+import { useRegion } from '@/contexts/RegionContext';
+import { getLeaderboardEndpoint, getCharacterEndpoint } from '@/utils/blizzardApi';
 import { 
   Container, 
   Button, 
@@ -30,6 +34,29 @@ import {
   TablePagination
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import { US_SERVERS, EU_SERVERS } from '@/constants/servers';
+import { formatText } from '@/utils/textFormatting';
+import { ListChildComponentProps, FixedSizeList } from 'react-window';
+import React from 'react';
+
+const LISTBOX_PADDING = 8; // px
+
+function renderRow(props: ListChildComponentProps) {
+  const { data, index, style } = props;
+  return React.cloneElement(data[index], {
+    style: {
+      ...style,
+      top: (style.top as number) + LISTBOX_PADDING,
+    },
+  });
+}
+
+const OuterElementContext = React.createContext({});
+
+const OuterElementType = React.forwardRef<HTMLDivElement>((props, ref) => {
+  const outerProps = React.useContext(OuterElementContext);
+  return <div ref={ref} {...props} {...outerProps} />;
+});
 
 const StyledAutocomplete = styled(Autocomplete<string, false, false, true>)(({ theme }) => ({
   '& .MuiAutocomplete-listbox': {
@@ -56,71 +83,39 @@ const StyledAutocomplete = styled(Autocomplete<string, false, false, true>)(({ t
   },
 }));
 
-const US_SERVERS = [
-  'Whitemane',
-  'Benediction',
-  'Faerlina',
-  'Grobbulus',
-  'Mankrik',
-  'Pagle',
-  'Westfall',
-  'Windseeker',
-  'Atiesh',
-  'Azuresong',
-  'Bloodsail Buccaneers',
-  'Deviate Delight',
-  'Earthfury',
-  'Heartseeker',
-  'Incendius',
-  'Kirtonos',
-  'Kromcrush',
-  'Kurinnaxx',
-  'Loatheb',
-  'Netherwind',
-  'Old Blanchy',
-  'Rattlegore',
-  'Remulos',
-  'Skeram',
-  'Smolderweb',
-  'Stalagg',
-  'Sulfuras',
-  'Thalnos',
-  'Thunderfury',
-  'Yojamba'
-];
+// Custom ListboxComponent for virtualization
+function ListboxComponent(props: React.HTMLAttributes<HTMLElement>) {
+  const { children, ...other } = props;
+  const itemData = React.Children.toArray(children);
+  const itemCount = itemData.length;
+  const itemSize = 36;
 
-const EU_SERVERS = [
-  'Firemaw',
-  'Gehennas',
-  'Mograine',
-  'Pyrewood Village',
-  'Razorgore',
-  'Shazzrah',
-  'Venoxis',
-  'Zandalar Tribe',
-  'Ashbringer',
-  'Auberdine',
-  'Bloodfang',
-  'Dragonfang',
-  'Earthshaker',
-  'Everlook',
-  'Finkle',
-  'Flamegor',
-  'Gandling',
-  'Golemagg',
-  'Hydraxian Waterlords',
-  'Judgement',
-  'Lakeshire',
-  'Mandokir',
-  'Nethergarde Keep',
-  'Noggenfogger',
-  'Patchwerk',
-  'Razorfen',
-  'Skullflame',
-  'Stonespine',
-  'Ten Storms',
-  'Transcendence'
-];
+  const getHeight = () => {
+    if (itemCount > 8) {
+      return 8 * itemSize;
+    }
+    return itemCount * itemSize;
+  };
+
+  return (
+    <div ref={other.ref}>
+      <OuterElementContext.Provider value={other}>
+        <FixedSizeList
+          itemData={itemData}
+          height={getHeight() + 2 * LISTBOX_PADDING}
+          width="100%"
+          outerElementType={OuterElementType}
+          innerElementType="ul"
+          itemSize={itemSize}
+          overscanCount={5}
+          itemCount={itemCount}
+        >
+          {renderRow}
+        </FixedSizeList>
+      </OuterElementContext.Provider>
+    </div>
+  );
+}
 
 interface Character {
   name: string;
@@ -165,79 +160,78 @@ interface Leaderboard {
 }
 
 export default function Home() {
-  const [realm, setRealm] = useState('');
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [character, setCharacter] = useState<Character | null>(null);
-  const [error, setError] = useState('');
-  const [showError, setShowError] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null);
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [selectedBracket, setSelectedBracket] = useState<'2v2' | '3v3'>('3v3');
-  const [region, setRegion] = useState<'US' | 'EU'>('US');
-  const [realmOptions, setRealmOptions] = useState<string[]>(US_SERVERS);
-  const [nameOptions, setNameOptions] = useState<string[]>([]);
-  const [gameVersion, setGameVersion] = useState<'retail' | 'classic'>('retail');
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
-
-  // Function to determine region based on country code
-  const getRegionFromCountry = (countryCode: string): 'US' | 'EU' => {
-    const euCountries = [
-      'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU',
-      'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
-      'GB', 'UK'
-    ];
-    return euCountries.includes(countryCode.toUpperCase()) ? 'EU' : 'US';
-  };
-
-  // Function to detect user's location
-  const detectUserLocation = async () => {
-    try {
-      const response = await fetch('https://ipapi.co/json/');
-      const data = await response.json();
-      const detectedRegion = getRegionFromCountry(data.country_code);
-      setRegion(detectedRegion);
-      setRealmOptions(detectedRegion === 'US' ? US_SERVERS : EU_SERVERS);
-    } catch (error) {
-      console.error('Error detecting location:', error);
-      // Fallback to US if location detection fails
-      setRegion('US');
-      setRealmOptions(US_SERVERS);
-    }
-  };
+  const { gameVersion } = useGameVersion();
+  const { region } = useRegion();
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedBracket, setSelectedBracket] = useState('3v3');
+  const [selectedRealm, setSelectedRealm] = useState<string | null>(null);
+  const [selectedFaction, setSelectedFaction] = useState<string | null>(null);
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [selectedSpec, setSelectedSpec] = useState<string | null>(null);
+  const [selectedRating, setSelectedRating] = useState<string | null>(null);
+  const [selectedWinRate, setSelectedWinRate] = useState<string | null>(null);
+  const [selectedGamesPlayed, setSelectedGamesPlayed] = useState<string | null>(null);
+  const [selectedWinStreak, setSelectedWinStreak] = useState<string | null>(null);
+  const [selectedLossStreak, setSelectedLossStreak] = useState<string | null>(null);
+  const [selectedHonorKills, setSelectedHonorKills] = useState<string | null>(null);
+  const [selectedHonorLevel, setSelectedHonorLevel] = useState<string | null>(null);
+  const [selectedAchievementPoints, setSelectedAchievementPoints] = useState<string | null>(null);
+  const [selectedMounts, setSelectedMounts] = useState<string | null>(null);
+  const [selectedPets, setSelectedPets] = useState<string | null>(null);
+  const [selectedTitles, setSelectedTitles] = useState<string | null>(null);
+  const [selectedTransmog, setSelectedTransmog] = useState<string | null>(null);
+  const [selectedReputation, setSelectedReputation] = useState<string | null>(null);
+  const [selectedProfessions, setSelectedProfessions] = useState<string | null>(null);
+  const [selectedQuests, setSelectedQuests] = useState<string | null>(null);
+  const [selectedExploration, setSelectedExploration] = useState<string | null>(null);
+  const [selectedDungeons, setSelectedDungeons] = useState<string | null>(null);
+  const [selectedRaids, setSelectedRaids] = useState<string | null>(null);
+  const [selectedBattlegrounds, setSelectedBattlegrounds] = useState<string | null>(null);
+  const [selectedArenas, setSelectedArenas] = useState<string | null>(null);
+  const [selectedWorldPvP, setSelectedWorldPvP] = useState<string | null>(null);
+  const [selectedPetBattles, setSelectedPetBattles] = useState<string | null>(null);
+  const [selectedArchaeology, setSelectedArchaeology] = useState<string | null>(null);
+  const [selectedFishing, setSelectedFishing] = useState<string | null>(null);
+  const [selectedCooking, setSelectedCooking] = useState<string | null>(null);
+  const [selectedFirstAid, setSelectedFirstAid] = useState<string | null>(null);
+  const [selectedHerbalism, setSelectedHerbalism] = useState<string | null>(null);
+  const [selectedMining, setSelectedMining] = useState<string | null>(null);
+  const [selectedSkinning, setSelectedSkinning] = useState<string | null>(null);
+  const [selectedTailoring, setSelectedTailoring] = useState<string | null>(null);
+  const [selectedLeatherworking, setSelectedLeatherworking] = useState<string | null>(null);
+  const [selectedEngineering, setSelectedEngineering] = useState<string | null>(null);
+  const [selectedEnchanting, setSelectedEnchanting] = useState<string | null>(null);
+  const [selectedJewelcrafting, setSelectedJewelcrafting] = useState<string | null>(null);
+  const [selectedInscription, setSelectedInscription] = useState<string | null>(null);
+  const [selectedAlchemy, setSelectedAlchemy] = useState<string | null>(null);
+  const [selectedBlacksmithing, setSelectedBlacksmithing] = useState<string | null>(null);
 
   useEffect(() => {
-    detectUserLocation();
-  }, []);
-
-  useEffect(() => {
-    setRealmOptions(region === 'US' ? US_SERVERS : EU_SERVERS);
     fetchLeaderboard();
-  }, [selectedBracket, region, gameVersion]);
+  }, [gameVersion, selectedBracket]);
 
   const fetchLeaderboard = async () => {
-    setLeaderboardLoading(true);
+    setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`http://localhost:8000/api/pvp-leaderboard/${selectedBracket}?game_version=${gameVersion}`);
+      const response = await fetch(`http://localhost:8000/api/pvp-leaderboard/${selectedBracket}`);
       if (!response.ok) {
         throw new Error('Failed to fetch leaderboard');
       }
       const data = await response.json();
-      setLeaderboard(data);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
-      setError(errorMessage);
-      setShowError(true);
+      setLeaderboard(data.entries || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setLeaderboardLoading(false);
+      setLoading(false);
     }
   };
 
   const handleSearch = async () => {
-    if (!realm || !name) {
-      setError('Please enter both realm and character name');
-      setShowError(true);
+    if (!selectedRealm || !selectedClass) {
+      setError('Please enter both realm and character class');
       return;
     }
 
@@ -245,60 +239,34 @@ export default function Home() {
     setError('');
     
     try {
-      const response = await fetch(`http://localhost:8000/api/character/${realm}/${name}`);
+      const response = await fetch(`/api/character/${selectedRealm}/${selectedClass}`);
       if (!response.ok) {
         throw new Error('Character not found');
       }
       const data = await response.json();
-      setCharacter(data);
+      setSelectedClass(data.character_class.name);
+      setSelectedSpec(data.active_spec.name);
+      setSelectedFaction(data.faction.name);
+      setSelectedRealm(data.realm.name);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
       setError(errorMessage);
-      setShowError(true);
-      setCharacter(null);
+      setSelectedClass(null);
+      setSelectedSpec(null);
+      setSelectedFaction(null);
+      setSelectedRealm(null);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCloseError = () => {
-    setShowError(false);
+    setError(null);
   };
 
-  // Helper function to format text
-  const formatText = (text: string): string => {
-    if (!text) return '';
-    
-    // Handle special cases
-    const specialCases: { [key: string]: string } = {
-      'horde': 'Horde',
-      'alliance': 'Alliance',
-      '2v2': '2v2',
-      '3v3': '3v3',
-      '5v5': '5v5'
-    };
-
-    // Check if it's a special case
-    const lowerText = text.toLowerCase();
-    if (specialCases[lowerText]) {
-      return specialCases[lowerText];
-    }
-
-    // Format realm names and other text
-    return text
-      .split(/[-_]/) // Split by hyphen or underscore
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
-  };
-
-  const handleChangePage = (event: unknown, newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
+  const filteredServers = gameVersion === 'retail' 
+    ? US_SERVERS.filter(server => !server.toLowerCase().includes('classic') && !server.toLowerCase().includes('season') && !server.toLowerCase().includes('era'))
+    : US_SERVERS.filter(server => server.toLowerCase().includes('classic') || server.toLowerCase().includes('season') || server.toLowerCase().includes('era'));
 
   return (
     <Container 
@@ -315,30 +283,30 @@ export default function Home() {
         <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             <ToggleButtonGroup
-              value={region}
+              value={selectedBracket}
               exclusive
-              onChange={(event, newRegion) => {
-                if (newRegion !== null) {
-                  setRegion(newRegion);
-                  setRealm(''); // Clear realm when changing region
+              onChange={(event, newBracket) => {
+                if (newBracket !== null) {
+                  setSelectedBracket(newBracket);
                 }
               }}
-              aria-label="region selection"
+              aria-label="bracket selection"
               size="small"
             >
-              <ToggleButton value="US" aria-label="US region">
-                US
+              <ToggleButton value="2v2" aria-label="2v2 bracket">
+                2v2
               </ToggleButton>
-              <ToggleButton value="EU" aria-label="EU region">
-                EU
+              <ToggleButton value="3v3" aria-label="3v3 bracket">
+                3v3
               </ToggleButton>
             </ToggleButtonGroup>
             <StyledAutocomplete
               freeSolo
-              options={realmOptions}
-              value={realm}
-              onChange={(event: any, value: string | null) => setRealm(value || '')}
-              onInputChange={(event, newValue) => setRealm(newValue)}
+              options={filteredServers}
+              value={selectedRealm}
+              onChange={(event: any, value: string | null) => setSelectedRealm(value || '')}
+              onInputChange={(event, newValue) => setSelectedRealm(newValue)}
+              ListboxComponent={ListboxComponent}
               renderInput={(params) => (
                 <MuiTextField
                   {...params}
@@ -350,15 +318,15 @@ export default function Home() {
             />
             <StyledAutocomplete
               freeSolo
-              options={nameOptions}
-              value={name}
-              onChange={(event: any, value: string | null) => setName(value || '')}
-              onInputChange={(event, newValue) => setName(newValue)}
+              options={['Warrior', 'Mage', 'Hunter', 'Rogue', 'Priest', 'Paladin', 'Shaman', 'Druid', 'Warlock', 'Melee', 'Ranged', 'Healer', 'Tank', 'Healer', 'DPS']}
+              value={selectedClass}
+              onChange={(event: any, value: string | null) => setSelectedClass(value || '')}
+              onInputChange={(event, newValue) => setSelectedClass(newValue)}
               renderInput={(params) => (
                 <MuiTextField
                   {...params}
                   size="small"
-                  placeholder="Character Name"
+                  placeholder="Class"
                   sx={{ width: 200 }}
                 />
               )}
@@ -375,26 +343,23 @@ export default function Home() {
           </Box>
         </Paper>
 
-        {character && (
+        {selectedClass && (
           <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
             <Typography variant="h4" gutterBottom>
-              {character.name} - {character.realm.name}
+              {selectedClass} - {selectedRealm}
             </Typography>
             <Grid container spacing={2}>
               <Grid columns={{ xs: 12, sm: 6 }}>
                 <Typography variant="subtitle1">
-                  Level {character.level} {character.character_class.name}
+                  {selectedClass}
                 </Typography>
                 <Typography variant="subtitle1">
-                  {character.active_spec.name}
+                  {selectedSpec}
                 </Typography>
               </Grid>
               <Grid columns={{ xs: 12, sm: 6 }}>
                 <Typography variant="subtitle1">
-                  Faction: {character.faction.name}
-                </Typography>
-                <Typography variant="subtitle1">
-                  Race: {character.race.name}
+                  Faction: {selectedFaction}
                 </Typography>
               </Grid>
             </Grid>
@@ -406,47 +371,9 @@ export default function Home() {
             <Typography variant="h4">
               PvP Leaderboard
             </Typography>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <ToggleButtonGroup
-                value={gameVersion}
-                exclusive
-                onChange={(event, newVersion) => {
-                  if (newVersion !== null) {
-                    setGameVersion(newVersion);
-                  }
-                }}
-                aria-label="game version"
-                size="small"
-              >
-                <ToggleButton value="retail" aria-label="retail">
-                  Retail
-                </ToggleButton>
-                <ToggleButton value="classic" aria-label="classic">
-                  Classic
-                </ToggleButton>
-              </ToggleButtonGroup>
-              <ToggleButtonGroup
-                value={selectedBracket}
-                exclusive
-                onChange={(event, newBracket) => {
-                  if (newBracket !== null) {
-                    setSelectedBracket(newBracket);
-                  }
-                }}
-                aria-label="bracket selection"
-                size="small"
-              >
-                <ToggleButton value="2v2" aria-label="2v2 bracket">
-                  2v2
-                </ToggleButton>
-                <ToggleButton value="3v3" aria-label="3v3 bracket">
-                  3v3
-                </ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
           </Box>
 
-          {leaderboardLoading ? (
+          {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
               <CircularProgress />
             </Box>
@@ -464,43 +391,32 @@ export default function Home() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {leaderboard.entries
-                      ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                      .map((entry, index) => (
-                        <TableRow key={entry.character.id}>
-                          <TableCell>{page * rowsPerPage + index + 1}</TableCell>
-                          <TableCell>{entry.rating}</TableCell>
-                          <TableCell>
-                            <Link
-                              href={`/player/${entry.character.realm.slug}/${entry.character.name}?game_version=${gameVersion}`}
-                              style={{ textDecoration: 'none', color: 'inherit' }}
-                            >
-                              {formatText(entry.character.name)}
-                            </Link>
-                          </TableCell>
-                          <TableCell>{formatText(entry.character.realm.slug)}</TableCell>
-                          <TableCell>{formatText(entry.faction.type)}</TableCell>
-                        </TableRow>
+                    {leaderboard.map((entry, index) => (
+                      <TableRow key={entry.character.id}>
+                        <TableCell>{index + 1}</TableCell>
+                        <TableCell>{entry.rating}</TableCell>
+                        <TableCell>
+                          <Link
+                            href={`/player/${entry.character.realm.slug}/${entry.character.name}?game_version=${gameVersion}&region=${region}`}
+                            style={{ textDecoration: 'none', color: 'inherit' }}
+                          >
+                            {formatText(entry.character.name)}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{formatText(entry.character.realm.slug)}</TableCell>
+                        <TableCell>{formatText(entry.faction.type)}</TableCell>
+                      </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-              <TablePagination
-                rowsPerPageOptions={[10, 25, 50, 100]}
-                component="div"
-                count={leaderboard.entries?.length || 0}
-                rowsPerPage={rowsPerPage}
-                page={page}
-                onPageChange={handleChangePage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-              />
             </>
           )}
         </Paper>
       </Box>
 
       <Snackbar 
-        open={showError} 
+        open={error !== null} 
         autoHideDuration={6000} 
         onClose={handleCloseError}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}

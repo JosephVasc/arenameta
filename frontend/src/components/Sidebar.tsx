@@ -20,6 +20,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import SettingsIcon from '@mui/icons-material/Settings';
 import GroupIcon from '@mui/icons-material/Group';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import { styled } from '@mui/material/styles';
 import { useState, useEffect } from 'react';
 
@@ -128,7 +129,7 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
     { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Profile', icon: <PersonIcon />, path: '/profile' },
     { text: 'Find Partners', icon: <GroupIcon />, path: '/find-partners' },
-    { text: 'Leaderboards', icon: <EmojiEventsIcon />, path: '/leaderboards' },
+    { text: 'Statistics', icon: <TimelineIcon />, path: '/statistics' },
     { text: 'Guides', icon: <MenuBookIcon />, path: '/guides' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];

@@ -30,6 +30,12 @@ import {
   InputLabel,
   IconButton,
   Tooltip,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Link,
 } from '@mui/material';
 import {
   SportsEsports as GameIcon,
@@ -39,6 +45,12 @@ import {
   Group as GuildIcon,
   Timeline as StatsIcon,
   Star as StarIcon,
+  Edit as EditIcon,
+  Chat as DiscordIcon,
+  LiveTv as TwitchIcon,
+  Share as TwitterIcon,
+  VideoLibrary as YouTubeIcon,
+  PhotoCamera as InstagramIcon,
 } from '@mui/icons-material';
 
 interface TabPanelProps {
@@ -79,6 +91,15 @@ export default function Profile() {
   const [accountData, setAccountData] = useState<any>(null);
   const [selectedCharacter, setSelectedCharacter] = useState<string>('');
   const [settingMain, setSettingMain] = useState(false);
+  const [socialLinks, setSocialLinks] = useState<any>(null);
+  const [editSocialLinks, setEditSocialLinks] = useState(false);
+  const [socialForm, setSocialForm] = useState({
+    discord: '',
+    twitch: '',
+    twitter: '',
+    youtube: '',
+    instagram: '',
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -154,6 +175,21 @@ export default function Profile() {
         } else {
           setError('No characters found');
         }
+
+        // Fetch social links
+        const socialResponse = await fetch(`http://localhost:8000/api/social-links/${profile?.battletag}`, {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`
+          }
+        });
+
+        if (socialResponse.ok) {
+          const socialData = await socialResponse.json();
+          if (socialData.discord || socialData.twitch || socialData.twitter || socialData.youtube || socialData.instagram) {
+            setSocialLinks(socialData);
+            setSocialForm(socialData);
+          }
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
@@ -163,7 +199,7 @@ export default function Profile() {
     };
 
     fetchAccountData();
-  }, [isAuthenticated, router, accessToken, gameVersion]);
+  }, [isAuthenticated, router, accessToken, gameVersion, profile?.battletag]);
 
   const fetchCharacterData = async (realm: string, name: string) => {
     try {
@@ -240,6 +276,36 @@ export default function Profile() {
       setError(err instanceof Error ? err.message : 'An error occurred while setting main character');
     } finally {
       setSettingMain(false);
+    }
+  };
+
+  const handleSocialFormChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSocialForm({
+      ...socialForm,
+      [event.target.name]: event.target.value
+    });
+  };
+
+  const handleSaveSocialLinks = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/social-links', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(socialForm)
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update social links');
+      }
+
+      setSocialLinks(socialForm);
+      setEditSocialLinks(false);
+    } catch (err) {
+      console.error('Error updating social links:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while updating social links');
     }
   };
 
@@ -334,8 +400,148 @@ export default function Profile() {
               </IconButton>
             </Tooltip>
           </Grid>
+          <Grid item>
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                startIcon={<EditIcon />}
+                onClick={() => setEditSocialLinks(true)}
+              >
+                Edit Social Links
+              </Button>
+            </Stack>
+          </Grid>
         </Grid>
       </Paper>
+
+      {/* Social Links Dialog */}
+      <Dialog open={editSocialLinks} onClose={() => setEditSocialLinks(false)}>
+        <DialogTitle>Edit Social Links</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            <TextField
+              name="discord"
+              label="Discord Username"
+              value={socialForm.discord}
+              onChange={handleSocialFormChange}
+              fullWidth
+            />
+            <TextField
+              name="twitch"
+              label="Twitch Channel"
+              value={socialForm.twitch}
+              onChange={handleSocialFormChange}
+              fullWidth
+            />
+            <TextField
+              name="twitter"
+              label="Twitter Handle"
+              value={socialForm.twitter}
+              onChange={handleSocialFormChange}
+              fullWidth
+            />
+            <TextField
+              name="youtube"
+              label="YouTube Channel"
+              value={socialForm.youtube}
+              onChange={handleSocialFormChange}
+              fullWidth
+            />
+            <TextField
+              name="instagram"
+              label="Instagram Handle"
+              value={socialForm.instagram}
+              onChange={handleSocialFormChange}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditSocialLinks(false)}>Cancel</Button>
+          <Button onClick={handleSaveSocialLinks} variant="contained">Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Social Links Display */}
+      {socialLinks && (
+        <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Social Links
+          </Typography>
+          <Stack direction="row" spacing={2}>
+            {socialLinks.discord && (
+              <Link
+                href={`https://discord.com/users/${socialLinks.discord}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+              >
+                <Chip
+                  icon={<DiscordIcon />}
+                  label={socialLinks.discord}
+                  clickable
+                />
+              </Link>
+            )}
+            {socialLinks.twitch && (
+              <Link
+                href={`https://twitch.tv/${socialLinks.twitch}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+              >
+                <Chip
+                  icon={<TwitchIcon />}
+                  label={socialLinks.twitch}
+                  clickable
+                />
+              </Link>
+            )}
+            {socialLinks.twitter && (
+              <Link
+                href={`https://twitter.com/${socialLinks.twitter}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+              >
+                <Chip
+                  icon={<TwitterIcon />}
+                  label={socialLinks.twitter}
+                  clickable
+                />
+              </Link>
+            )}
+            {socialLinks.youtube && (
+              <Link
+                href={`https://youtube.com/${socialLinks.youtube}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+              >
+                <Chip
+                  icon={<YouTubeIcon />}
+                  label={socialLinks.youtube}
+                  clickable
+                />
+              </Link>
+            )}
+            {socialLinks.instagram && (
+              <Link
+                href={`https://instagram.com/${socialLinks.instagram}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                underline="none"
+              >
+                <Chip
+                  icon={<InstagramIcon />}
+                  label={socialLinks.instagram}
+                  clickable
+                />
+              </Link>
+            )}
+          </Stack>
+        </Paper>
+      )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={tabValue} onChange={handleTabChange} aria-label="profile tabs">
