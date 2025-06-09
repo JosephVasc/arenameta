@@ -50,6 +50,7 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
+*.db
 
 # TypeScript
 *.tsbuildinfo
