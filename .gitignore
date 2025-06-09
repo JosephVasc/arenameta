@@ -51,7 +51,7 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 *.db
-arenameta.db
+backend/arenameta.db
 
 # TypeScript
 *.tsbuildinfo
