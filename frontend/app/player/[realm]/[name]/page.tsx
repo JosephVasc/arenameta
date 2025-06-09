@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useGameVersion } from '@/contexts/GameVersionContext';
+import { useRegion } from '@/contexts/RegionContext';
+import { getCharacterEndpoint } from '@/utils/blizzardApi';
 import {
   Box,
   Container,
@@ -24,6 +27,8 @@ import {
   Chip,
   Button,
   Stack,
+  Snackbar,
+  Link
 } from '@mui/material';
 import {
   SportsEsports as GameIcon,
@@ -33,6 +38,7 @@ import {
   Group as GuildIcon,
   Timeline as StatsIcon,
 } from '@mui/icons-material';
+import React from 'react';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -60,93 +66,120 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-export default function PlayerPage({ params }: { params: { realm: string; name: string } }) {
-  const { isAuthenticated, accessToken } = useAuth();
+interface Character {
+  name: string;
+  realm: {
+    name: string;
+  };
+  level: number;
+  character_class: {
+    name: string;
+  };
+  active_spec: {
+    name: string;
+  };
+  faction: {
+    name: string;
+  };
+  race: {
+    name: string;
+  };
+}
+
+function CharacterContent({ params }: { params: Promise<{ realm: string; name: string }> }) {
   const router = useRouter();
-  const [tabValue, setTabValue] = useState(0);
-  const [characterData, setCharacterData] = useState<any>(null);
+  const searchParams = useSearchParams();
+  const { isAuthenticated, accessToken } = useAuth();
+  const { gameVersion } = useGameVersion();
+  const { region } = useRegion();
+  const [character, setCharacter] = useState<Character | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [gameVersion, setGameVersion] = useState<'retail' | 'classic'>('retail');
+  const [tabValue, setTabValue] = useState(0);
+
+  // Unwrap params outside of try/catch
+  const unwrappedParams = React.use(params);
+  const realmSlug = unwrappedParams.realm.toLowerCase();
+  const characterName = unwrappedParams.name.toLowerCase();
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/');
-      return;
-    }
-
     const fetchCharacterData = async () => {
+      if (!isAuthenticated || !accessToken) {
+        router.push('/login');
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true);
-        setError(null);
-
-        // Format realm and character name according to API requirements
-        const realmSlug = params.realm.toLowerCase();
-        const characterName = params.name.toLowerCase();
-
-        // Fetch detailed character data
-        const response = await fetch('http://localhost:8000/api/character', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            realm: realmSlug,
-            name: characterName,
-            game_version: gameVersion
-          })
-        });
+        // Fetch detailed character data from our backend
+        const response = await fetch(
+          `http://localhost:8000/api/character/${region}/${realmSlug}/${characterName}?game_version=${gameVersion}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json'
+            }
+          }
+        );
 
         if (!response.ok) {
-          const errorData = await response.json();
-          if (response.status === 403) {
-            // If we get a 403, try to refresh the token or redirect to login
-            router.push('/');
-            throw new Error('Authentication required. Please log in again.');
-          }
-          throw new Error(errorData.detail || 'Failed to fetch character data');
+          throw new Error('Failed to fetch character data');
         }
 
         const data = await response.json();
-        setCharacterData(data);
+        setCharacter(data);
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
+        setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
     };
 
-    if (accessToken) {
+    if (isAuthenticated && accessToken) {
       fetchCharacterData();
     }
-  }, [isAuthenticated, router, accessToken, gameVersion, params.realm, params.name]);
+  }, [isAuthenticated, router, accessToken, gameVersion, realmSlug, characterName, region]);
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
   };
 
-  const handleGameVersionChange = (version: 'retail' | 'classic') => {
-    setGameVersion(version);
+  const handleCloseError = () => {
+    setError(null);
   };
-
-  if (!isAuthenticated) {
-    return null;
-  }
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-        <CircularProgress />
-      </Box>
+      <Container maxWidth="lg">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+          <CircularProgress />
+        </Box>
+      </Container>
     );
   }
 
   if (error) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Alert severity="error">{error}</Alert>
+      <Container maxWidth="lg">
+        <Box sx={{ mt: 4 }}>
+          <Alert severity="error">
+            {error}
+          </Alert>
+        </Box>
+      </Container>
+    );
+  }
+
+  if (!character) {
+    return (
+      <Container maxWidth="lg">
+        <Box sx={{ mt: 4 }}>
+          <Alert severity="info">
+            Character not found
+          </Alert>
+        </Box>
       </Container>
     );
   }
@@ -157,33 +190,17 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
         <Grid container spacing={3} alignItems="center">
           <Grid item>
             <Avatar
-              src={characterData?.profile?.character?.media?.avatar_url}
+              src={character?.profile?.character?.media?.avatar_url}
               sx={{ width: 100, height: 100 }}
             />
           </Grid>
           <Grid item xs>
             <Typography variant="h4" gutterBottom>
-              {characterData?.profile?.character?.name}
+              {character?.profile?.character?.name}
             </Typography>
             <Typography variant="subtitle1" color="text.secondary">
-              {characterData?.profile?.character?.realm?.name} - Level {characterData?.profile?.character?.level}
+              {character?.profile?.character?.realm?.name} - Level {character?.profile?.character?.level}
             </Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-              <Button
-                variant={gameVersion === 'retail' ? 'contained' : 'outlined'}
-                onClick={() => handleGameVersionChange('retail')}
-                size="small"
-              >
-                Retail
-              </Button>
-              <Button
-                variant={gameVersion === 'classic' ? 'contained' : 'outlined'}
-                onClick={() => handleGameVersionChange('classic')}
-                size="small"
-              >
-                Classic
-              </Button>
-            </Stack>
           </Grid>
         </Grid>
       </Paper>
@@ -211,19 +228,19 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
                   <ListItem>
                     <ListItemText
                       primary="Race"
-                      secondary={characterData?.profile?.character?.race?.name}
+                      secondary={character?.profile?.character?.race?.name}
                     />
                   </ListItem>
                   <ListItem>
                     <ListItemText
                       primary="Class"
-                      secondary={characterData?.profile?.character?.character_class?.name}
+                      secondary={character?.profile?.character?.character_class?.name}
                     />
                   </ListItem>
                   <ListItem>
                     <ListItemText
                       primary="Faction"
-                      secondary={characterData?.profile?.character?.faction?.name}
+                      secondary={character?.profile?.character?.faction?.name}
                     />
                   </ListItem>
                 </List>
@@ -236,24 +253,24 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
                 <Typography variant="h6" gutterBottom>
                   PvP Stats
                 </Typography>
-                {characterData?.pvp ? (
+                {character?.pvp ? (
                   <List>
                     <ListItem>
                       <ListItemText
                         primary="2v2 Rating"
-                        secondary={characterData.pvp.brackets?.['2v2']?.rating || 'N/A'}
+                        secondary={character.pvp.brackets?.['2v2']?.rating || 'N/A'}
                       />
                     </ListItem>
                     <ListItem>
                       <ListItemText
                         primary="3v3 Rating"
-                        secondary={characterData.pvp.brackets?.['3v3']?.rating || 'N/A'}
+                        secondary={character.pvp.brackets?.['3v3']?.rating || 'N/A'}
                       />
                     </ListItem>
                     <ListItem>
                       <ListItemText
                         primary="RBG Rating"
-                        secondary={characterData.pvp.brackets?.['rbg']?.rating || 'N/A'}
+                        secondary={character.pvp.brackets?.['rbg']?.rating || 'N/A'}
                       />
                     </ListItem>
                   </List>
@@ -268,7 +285,7 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
 
       <TabPanel value={tabValue} index={1}>
         <Grid container spacing={2}>
-          {characterData?.equipment?.equipped_items?.map((item: any) => (
+          {character?.equipment?.equipped_items?.map((item: any) => (
             <Grid item xs={12} sm={6} md={4} key={item.slot.type}>
               <Card>
                 <CardContent>
@@ -300,9 +317,9 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
                 <Typography variant="h6" gutterBottom>
                   PvP Statistics
                 </Typography>
-                {characterData?.pvp ? (
+                {character?.pvp ? (
                   <Grid container spacing={2}>
-                    {Object.entries(characterData.pvp.brackets || {}).map(([bracket, data]: [string, any]) => (
+                    {Object.entries(character.pvp.brackets || {}).map(([bracket, data]: [string, any]) => (
                       <Grid item xs={12} sm={6} md={4} key={bracket}>
                         <Paper sx={{ p: 2 }}>
                           <Typography variant="subtitle1" gutterBottom>
@@ -367,6 +384,36 @@ export default function PlayerPage({ params }: { params: { realm: string; name: 
           Guild data will be available soon
         </Typography>
       </TabPanel>
+
+      <Snackbar 
+        open={error !== null} 
+        autoHideDuration={6000} 
+        onClose={handleCloseError}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseError} 
+          severity="error" 
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {error}
+        </Alert>
+      </Snackbar>
     </Container>
+  );
+}
+
+export default function PlayerPage({ params }: { params: Promise<{ realm: string; name: string }> }) {
+  return (
+    <Suspense fallback={
+      <Container maxWidth="lg">
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+          <CircularProgress />
+        </Box>
+      </Container>
+    }>
+      <CharacterContent params={params} />
+    </Suspense>
   );
 } 
